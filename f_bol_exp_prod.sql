@@ -141,30 +141,173 @@ CREATE TEMP TABLE t_dm AS
                 LEFT JOIN dm_exp_ximo x                                          ON x.file                                                              = a.file
 );
 
---build departures from US ports
-CREATE TEMP TABLE t_dep AS
-(
-                SELECT
-                    imo,
-                    a.poi AS poi_depart,
-                    date_depart
-                FROM t_asvt_arrival a
-                JOIN as_vessel_exp b    ON b.vessel = a.vessel
-                JOIN as_poi c ON c.poi = a.poi
-                JOIN port d ON d.code = c.port
-                WHERE
-                    c.cmdty <> '' AND
-                    d.country = 'UNITED STATES' AND
-                    c.type <> 'Lightering Zone' AND
-                    a.draught_depart > a.draught_arrive
+
+/* New t_dep */
+drop table if exists t_bill_dep;
+create temp table t_bill_dep as (
+with t_dep_v2 as (
+SELECT imo,
+       a.poi AS poi_depart,
+       d.code port_code,
+       d.name port_name,
+       date_depart,
+       c.lo_city_code,
+       c.lo_country_code
+FROM t_asvt_arrival a
+JOIN as_vessel_exp b    ON b.vessel = a.vessel
+JOIN as_poi c ON c.poi = a.poi
+JOIN port d ON d.code = c.port
+WHERE c.cmdty <> '' AND
+       d.country = 'UNITED STATES' AND
+       c.type <> 'Lightering Zone' AND
+       a.draught_depart > a.draught_arrive
+)
+
+select a.imo,
+       a.date bill_date,
+       a.grade,
+       a.description,
+       a.ld_city_decl,
+       a.ld_country_decl,
+       a.port_custom,
+       a.dis_city_decl,
+       a.dis_country_decl,
+       a.weight_mt,
+       a.file,
+       b.poi_depart,
+       b.date_depart,
+       b.port_code,
+       b.port_name,
+       b.lo_country_code,
+       b.lo_city_code
+from t_dm a
+left join t_dep_v2 b on a.imo = b.imo
 );
+
 /*
-Note:
-(1) draught_changes 1) only use '>', t_dep has 36410 rows
-                    2) '>=', t_dep has 62672 rows.
---> we may lose some departures if zero draft changes are not included,
-since they are likely to change after departing the port for a while.
+1. Based on t_dm table, left join the table t_dep,
+every bills will have a potential corresponding departure.
+
+2. Add draught information in the t_dep_v2 table.
 */
+
+drop table if exists t_bill_dep;
+create temp table t_bill_dep as (
+with t_dep_v2 as (
+SELECT imo,
+       a.poi AS poi_depart,
+       d.code port_code,
+       d.name port_name,
+       date_depart,
+       c.lo_city_code,
+       c.lo_country_code,
+       draught_arrive,
+       draught_depart
+FROM t_asvt_arrival a
+JOIN as_vessel_exp b    ON b.vessel = a.vessel
+JOIN as_poi c ON c.poi = a.poi
+JOIN port d ON d.code = c.port
+WHERE c.cmdty <> '' AND
+       d.country = 'UNITED STATES' AND
+       c.type <> 'Lightering Zone' AND
+       a.draught_depart >= a.draught_arrive
+)
+
+select a.imo,
+       a.date bill_date,
+       a.grade,
+       a.description,
+       a.ld_city_decl,
+       a.ld_country_decl,
+       a.port_custom,
+       a.dis_city_decl,
+       a.dis_country_decl,
+       a.weight_mt,
+       a.file,
+       b.poi_depart,
+       b.date_depart,
+       b.port_code,
+       b.port_name,
+       b.lo_country_code,
+       b.lo_city_code,
+       b.draught_arrive,
+       b.draught_depart
+from t_dm a
+left join t_dep_v2 b on a.imo = b.imo
+)
+;
+
+
+/*
+1. Add an extra column: poi_cmdty into t_bill_dep;
+
+This is used to make comparison with t_bill_dep_cmdty table,
+which will filter out all the asvt_arrival records with poi
+that could not handle reported commodity.
+*/
+
+drop table if exists t_bill_dep_v2;
+create temp table t_bill_dep_v2 as (
+with t0 as (
+(select a.*,
+    b.cd_report
+from t_bill_dep a
+left join cat_product b on a.grade = b.product_code
+where grade not in (select distinct crude_code from cat_crude)
+)
+union all
+(select a.*,
+       'CRUDE' cd_report
+from t_bill_dep a
+where grade in (select distinct crude_code from cat_crude)
+)),
+t1 as (
+select t0.*,
+       b.cmdty
+from t0
+left join lookup.cmdty_cat_product b on t0.cd_report = b.cd_report
+)
+select t1.*,
+       b.cmdty poi_cmdty
+from t1
+left join as_poi b on t1.poi_depart = b.poi
+)
+;
+
+/* Only include asvt_arrival record whose poi can handle
+the commodities on the vessel */
+drop table if exists t_bill_dep_cmdty;
+create temp table t_bill_dep_cmdty as (
+with t0 as (
+(select a.*,
+    b.cd_report
+from t_bill_dep a
+left join cat_product b on a.grade = b.product_code
+where grade not in (select distinct crude_code from cat_crude)
+)
+union all
+(select a.*,
+       'CRUDE' cd_report
+from t_bill_dep a
+where grade in (select distinct crude_code from cat_crude)
+)),
+t1 as (
+select t0.*,
+       b.cmdty
+from t0
+left join lookup.cmdty_cat_product b on t0.cd_report = b.cd_report
+)
+
+select t1.*,
+       b.loadunl
+from t1
+join poi_dir b on t1.poi_depart = b.poi and t1.cmdty = b.cmdty
+);
+
+
+
+
+
 
 
 --build arrivals at non-US ports
