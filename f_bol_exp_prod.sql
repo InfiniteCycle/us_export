@@ -377,7 +377,128 @@ select a.*,
        b.loadunl
 from t_combine a
 join poi_dir b on a.poi_depart = b.poi and a.cmdty = b.cmdty
+);
+
+
+
+-- (1) poi must can handle the reported commodity.
+-- (2) select record with smallest time difference.
+-- (3) port city must match.
+drop table if exists t_timediff_cmdty_city;
+create temp table t_timediff_cmdty_city as (
+with t0 as (
+select *,
+       round(extract(epoch from (date_depart - bill_date))/3600/24, 4) time_diff
+from t_bill_dep_cmdty
+where ld_city_decl = lo_city_code and ld_country_decl = lo_country_code
+-- where port_custom = port_code
+),
+t1 as (
+select file,
+       min(abs(time_diff)) min_time_diff
+from t0
+group by imo,
+         file
 )
+
+select a.* from t0 a, t1 b
+where abs(time_diff) = b.min_time_diff and
+      a.file = b.file
+)
+;
+
+-- (1) poi must can handle the reported commodity.
+-- (2) select record with smallest time difference.
+-- (3) port code must match.
+drop table if exists t_timediff_cmdty_port;
+create temp table t_timediff_cmdty_port as (
+with t0 as (
+select *,
+       round(extract(epoch from (date_depart - bill_date))/3600/24, 4) time_diff
+from t_bill_dep_cmdty
+-- where ld_city_decl = lo_city_code and ld_country_decl = lo_country_code
+where port_custom = port_code
+),
+t1 as (
+select file,
+       min(abs(time_diff)) min_time_diff
+from t0
+group by file
+)
+
+select a.* from t0 a, t1 b
+where abs(time_diff) = b.min_time_diff and
+      a.file = b.file
+)
+;
+
+
+-- (1) poi must can handle the reported commodity.
+-- (2) select record with smallest time difference.
+-- (3) port state must match.
+drop table if exists t_timediff_cmdty_state;
+create temp table t_timediff_cmdty_state as (
+with t0 as (
+select a.*,
+       round(extract(epoch from (date_depart - bill_date))/3600/24, 4) time_diff,
+       b.state bill_port_state,
+       c.state port_state
+from t_bill_dep_cmdty a
+left join port b on a.port_custom = b.code
+left join port c on a.port_code = c.code
+where b.state = c.state
+),
+t1 as (
+select file,
+    min(abs(time_diff)) min_time_diff
+from t0
+group by file
+),
+t2 as (
+select a.* from t0 a, t1 b
+where abs(time_diff) = b.min_time_diff and
+      a.file = b.file
+)
+select * from t2
+);
+
+
+-- (1) Just select record having smallest time difference.
+drop table if exists t_timediff_min;
+create temp table t_time_diff_min as (
+with t0 as (
+select *,
+       round(extract(epoch from (date_depart - bill_date))/3600/24, 4) time_diff
+from t_bill_dep_v2
+-- where ld_city_decl = lo_city_code and ld_country_decl = lo_country_code
+-- where port_custom = port_code
+),
+t1 as (
+select file,
+       min(abs(time_diff)) min_time_diff
+from t0
+group by file
+)
+
+select a.* from t0 a, t1 b
+where abs(time_diff) = b.min_time_diff and
+      a.file = b.file
+)
+;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 --build arrivals at non-US ports
