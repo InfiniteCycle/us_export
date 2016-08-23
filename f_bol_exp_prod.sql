@@ -245,7 +245,6 @@ This is used to make comparison with t_bill_dep_cmdty table,
 which will filter out all the asvt_arrival records with poi
 that could not handle reported commodity.
 */
-
 drop table if exists t_bill_dep_v2;
 create temp table t_bill_dep_v2 as (
 with t0 as (
@@ -266,13 +265,50 @@ select t0.*,
        b.cmdty
 from t0
 left join lookup.cmdty_cat_product b on t0.cd_report = b.cd_report
-)
+),
+t_bill_dep_v2 as (
 select t1.*,
        b.cmdty poi_cmdty
 from t1
 left join as_poi b on t1.poi_depart = b.poi
+),
+t_dep_null as (
+select * from t_bill_dep_v2 a
+where poi_depart is null
+),
+t_dep_fill_null as (
+select a.imo,
+       a.bill_date,
+       a.grade,
+       a.description,
+       a.ld_city_decl,
+       a.ld_country_decl,
+       a.port_custom,
+       a.dis_city_decl,
+       a.dis_country_decl,
+       a.weight_mt,
+       a.file,
+       b.poi poi_depart,
+       b.date_depart,
+       c.port port_code,
+       d.name port_name,
+       c.lo_country_code,
+       c.lo_city_code,
+       0 draught_arrive,
+       0 draught_depart,
+       a.cd_report,
+       a.cmdty,
+       c.cmdty poi_cmdty
+from t_dep_null a
+left join as_exp_x b on a.file = b.file
+left join as_poi c on c.poi = b.poi
+left join port d on c.port = d.code
 )
-;
+
+select * from t_bill_dep_v2
+union ALL
+select * from t_dep_fill_null
+)
 
 /* Only include asvt_arrival record whose poi can handle
 the commodities on the vessel */
@@ -296,18 +332,52 @@ select t0.*,
        b.cmdty
 from t0
 left join lookup.cmdty_cat_product b on t0.cd_report = b.cd_report
+),
+t_bill_dep_v2 as (
+select * from t1
+),
+t_dep_null as (
+select * from t_bill_dep_v2 a
+where poi_depart is null
+),
+t_dep_fill_null as (
+select a.imo,
+       a.bill_date,
+       a.grade,
+       a.description,
+       a.ld_city_decl,
+       a.ld_country_decl,
+       a.port_custom,
+       a.dis_city_decl,
+       a.dis_country_decl,
+       a.weight_mt,
+       a.file,
+       b.poi poi_depart,
+       b.date_depart,
+       c.port port_code,
+       d.name port_name,
+       c.lo_country_code,
+       c.lo_city_code,
+       0 draught_arrive,
+       0 draught_depart,
+       a.cd_report,
+       a.cmdty
+from t_dep_null a
+left join as_exp_x b on a.file = b.file
+left join as_poi c on c.poi = b.poi
+left join port d on c.port = d.code
+),
+t_combine as (
+select * from t_bill_dep_v2
+union ALL
+select * from t_dep_fill_null
 )
 
-select t1.*,
+select a.*,
        b.loadunl
-from t1
-join poi_dir b on t1.poi_depart = b.poi and t1.cmdty = b.cmdty
-);
-
-
-
-
-
+from t_combine a
+join poi_dir b on a.poi_depart = b.poi and a.cmdty = b.cmdty
+)
 
 
 --build arrivals at non-US ports
