@@ -465,7 +465,7 @@ select * from t2
 
 -- (1) Just select record having smallest time difference.
 drop table if exists t_timediff_min;
-create temp table t_time_diff_min as (
+create temp table t_timediff_min as (
 with t0 as (
 select *,
        round(extract(epoch from (date_depart - bill_date))/3600/24, 4) time_diff
@@ -487,18 +487,89 @@ where abs(time_diff) = b.min_time_diff and
 ;
 
 
+/* combine tables */
 
-
-
-
-
-
-
-
-
-
-
-
+with t0 as (
+select * from t_timediff_cmdty_port
+where cmdty in ('D','F','G')
+and abs(time_diff) <= 14
+),
+t1 as (
+select * from t_timediff_cmdty_city
+where cmdty in ('D','F','G')
+and abs(time_diff) > 14
+),
+t2 as (
+select * from t0
+where file in (select file from t1)
+),
+t3 as (
+select * from t1
+where file not IN (select file from t2)
+),
+t4 as (
+select a.*,
+       t3.time_diff old_time_diff
+from t_timediff_cmdty_state a
+join t3 on t3.file = a.file
+where abs(a.time_diff) <=7 and abs(t3.time_diff) > 7
+order by old_time_diff
+),
+t5 as (
+(-- Matches by poi_cmdty, lo_city_code, time_diff <= 14 (cmdty_v2 table)
+select * from t_timediff_cmdty_city
+where cmdty in ('D','F','G')
+and abs(time_diff) <= 14
+) UNION ALL
+(-- Matches by poi_cmdty, port_code, time_diff <= 14 (cmdty table)
+select * from t2
+) UNION ALL
+(-- Matches by poi_cmdty, port state, time_diff <= 14 (state table)
+select imo,
+    bill_date,
+    grade,
+    description,
+    ld_city_decl,
+    ld_country_decl,
+    port_custom,
+    dis_city_decl,
+    dis_country_decl,
+    weight_mt,
+    file,
+    poi_depart,
+    date_depart,
+    port_code,
+    port_name,
+    lo_country_code,
+    lo_city_code,
+    draught_arrive,
+    draught_depart,
+    cd_report,
+    cmdty,
+    loadunl,
+    time_diff
+from t4
+)
+),
+t6 as (
+-- find all bills not contained in the combined table.
+select * from t_timediff_cmdty_city
+where file not in (select file from t5)
+and cmdty in ('F','D','G')
+),
+t_unmatched as (
+select a.*,
+       b.time_diff new_time_diff,
+       b.poi_depart new_matched_poi,
+       case
+    when abs(b.time_diff) <= 7 then 'Smaller Diff'
+    end notes
+from t6 a
+left join t_timediff_min b on a.file = b.file
+order by abs(a.time_diff) desc
+)
+-- get all matched bill and poi combinations.
+select * from t5
 
 
 --build arrivals at non-US ports
@@ -532,6 +603,15 @@ CREATE TEMP TABLE t_arr_pc AS
                 EXISTS (SELECT 1 FROM poi_dir WHERE poi = a.poi LIMIT 1) AND
                 d.country <> 'UNITED STATES'
 );
+
+
+
+
+
+
+
+
+
 
 
 --find the last departure after the bill date
